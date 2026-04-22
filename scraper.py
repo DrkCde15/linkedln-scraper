@@ -51,6 +51,26 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+def is_closed_job_page(soup: BeautifulSoup) -> bool:
+    """Return True when the page indicates that the job is closed."""
+    page_text = soup.get_text(" ", strip=True).lower()
+    closed_markers = [
+        "nao aceita mais candidaturas",
+        "nao esta mais aceitando candidaturas",
+        "vaga encerrada",
+        "processo seletivo encerrado",
+        "esta vaga foi encerrada",
+        "this job is no longer available",
+        "no longer accepting applications",
+        "applications are closed",
+        "position has been filled",
+        "job has expired",
+        "this position has been closed",
+    ]
+    return any(marker in page_text for marker in closed_markers)
+
+
+
 # ── Persistência de vagas já vistas ──────────────────────────────────────────
 def load_seen() -> set[str]:
     p = Path(config.SEEN_JOBS_FILE)
@@ -155,6 +175,9 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                 page.goto(job["url"], timeout=20_000, wait_until="domcontentloaded")
                 html = page.content()
                 soup = BeautifulSoup(html, "html.parser")
+                if is_closed_job_page(soup):
+                    log.info("[CLOSED] Vaga encerrada, ignorando: %s", job["url"])
+                    continue
 
                 # Seletores LinkedIn (podem mudar com redesigns)
                 def _text(sel: str) -> str:
