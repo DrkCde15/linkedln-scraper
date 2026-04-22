@@ -24,11 +24,10 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from pathlib import Path
 from typing import Any
-
+from ddgs import DDGS
 import schedule
 import time
 
-from duckduckgo_search import DDGS
 from bs4 import BeautifulSoup
 
 # Playwright é opcional – se não estiver instalado faz fallback gracioso
@@ -71,8 +70,10 @@ def save_seen(seen: set[str]) -> None:
 
 
 # ── Busca via DuckDuckGo ──────────────────────────────────────────────────────
-LINKEDIN_JOB_RE = re.compile(r"linkedin\.com/jobs/view/\d+", re.IGNORECASE)
-
+LINKEDIN_JOB_RE = re.compile(
+    r"linkedin\.com/jobs/(view|search|collections|jobs-in)/",
+    re.IGNORECASE,
+)
 
 def ddg_search() -> list[dict[str, str]]:
     """Retorna lista de {url, title, snippet} de vagas no LinkedIn."""
@@ -83,27 +84,49 @@ def ddg_search() -> list[dict[str, str]]:
         for query in config.SEARCH_QUERIES:
             log.info("🔍  Buscando: %s", query)
             try:
-                hits = ddgs.text(query, max_results=config.MAX_RESULTS_PER_QUERY)
+                hits = ddgs.text(query, max_results=config.MAX_RESULTS_PER_QUERY) or []
+                kept = 0
+                total = 0
+
                 for h in hits:
-                    url = h.get("href", "")
+                    total += 1
+                    url = (h.get("href") or "").strip()
+                    title = (h.get("title") or "Vaga LinkedIn").strip()
+                    snippet = (h.get("body") or "").strip()
+
+                    if not url:
+                        continue
+
+                    # Debug útil para entender o que o buscador está trazendo
+                    log.debug("DDG hit: %s", url)
+
+                    # Aceita variações comuns de URL de vagas no LinkedIn
+                    if "linkedin.com/jobs" not in url.lower():
+                        continue
                     if not LINKEDIN_JOB_RE.search(url):
                         continue
-                    # Normaliza: remove query-string
+
+                    # Normaliza URL removendo query string e barras finais
                     clean_url = url.split("?")[0].rstrip("/")
                     if clean_url in seen_urls:
                         continue
+
                     seen_urls.add(clean_url)
                     results.append(
                         {
                             "url": clean_url,
-                            "title": h.get("title", "Vaga LinkedIn"),
-                            "snippet": h.get("body", ""),
+                            "title": title,
+                            "snippet": snippet,
                         }
                     )
+                    kept += 1
+
+                log.info("✅ Query '%s': %d/%d links aproveitados", query, kept, total)
+
             except Exception as exc:
                 log.warning("Erro na busca DDG ('%s'): %s", query, exc)
 
-    log.info("🔎  %d vagas únicas encontradas via DuckDuckGo", len(results))
+    log.info("🔎  %d vagas únicas encontradas via DDG", len(results))
     return results
 
 

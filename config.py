@@ -9,8 +9,10 @@ load_dotenv()  # Carrega variáveis de ambiente do arquivo .env
 # --- Busca ---------------------------------------------------
 SEARCH_QUERIES = [
     "python junior remoto site:linkedin.com/jobs",
-    "python developer junior remote São Paulo site:linkedin.com/jobs",
-    "desenvolvedor python junior remoto site:linkedin.com/jobs",
+    "desenvolvedor python remoto site:linkedin.com/jobs",
+    "backend python remoto site:linkedin.com/jobs",
+    "dados remoto site:linkedin.com/jobs",
+    "devops remoto site:linkedin.com/jobs",
 ]
 MAX_RESULTS_PER_QUERY = 15          # resultados por busca
 
