@@ -103,6 +103,39 @@ LINKEDIN_JOB_RE = re.compile(
     re.IGNORECASE,
 )
 
+LINKEDIN_CANONICAL_URL_RE = re.compile(
+    r"https?://(?:[a-z]{2,3}\.)?linkedin\.com/jobs/(view/\d+|view/[^/?#]+)",
+    re.IGNORECASE,
+)
+
+
+def normalize_linkedin_url(url: str) -> str:
+    """Normalize LinkedIn job URLs to reduce duplicates."""
+    raw = (url or "").strip()
+    if not raw:
+        return ""
+
+    base = raw.split("#", 1)[0].split("?", 1)[0].rstrip("/")
+    m = LINKEDIN_CANONICAL_URL_RE.search(base)
+    if m:
+        return f"https://www.linkedin.com/jobs/{m.group(1)}"
+    return base
+
+
+def job_signature(job: dict[str, str]) -> str:
+    """Build a stable key from title/company/location."""
+    title = normalize_text(job.get("title", "")).strip()
+    company = normalize_text(job.get("company", "")).strip()
+    location = normalize_text(job.get("location", "Brasil")).strip() or "brasil"
+    return f"sig::{title}|{company}|{location}"
+
+
+def job_seen_keys(job: dict[str, str]) -> set[str]:
+    """Keys used to avoid duplicates across runs."""
+    url_key = f"url::{normalize_linkedin_url(job.get('url', ''))}"
+    return {url_key, job_signature(job)}
+
+
 def ddg_search() -> list[dict[str, str]]:
     """Retorna lista de {url, title, snippet} de vagas no LinkedIn."""
     results: list[dict[str, str]] = []
@@ -134,8 +167,8 @@ def ddg_search() -> list[dict[str, str]]:
                     if not LINKEDIN_JOB_RE.search(url):
                         continue
 
-                    # Normaliza URL removendo query string e barras finais
-                    clean_url = url.split("?")[0].rstrip("/")
+                    # Normaliza URL para reduzir duplicidade entre dom?nios/params
+                    clean_url = normalize_linkedin_url(url)
                     if clean_url in seen_urls:
                         continue
 
@@ -207,7 +240,7 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                 location = (
                     _text(".topcard__flavor--bullet")
                     or _text(".job-details-jobs-unified-top-card__bullet")
-                    or "—"
+                    or "Brasil"
                 )
 
                 enriched.append(
@@ -222,10 +255,10 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
 
             except PWTimeout:
                 log.warning("⏱  Timeout em %s", job["url"])
-                enriched.append({**job, "company": "—", "location": "—"})
+                enriched.append({**job, "company": "N/A", "location": "Brasil"})
             except Exception as exc:
                 log.warning("⚠️  Erro em %s: %s", job["url"], exc)
-                enriched.append({**job, "company": "—", "location": "—"})
+                enriched.append({**job, "company": "N/A", "location": "Brasil"})
 
         browser.close()
 
@@ -234,8 +267,8 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
 
 # ── Filtragem de vagas novas ──────────────────────────────────────────────────
 def filter_new(jobs: list[dict[str, str]], seen: set[str]) -> list[dict[str, str]]:
-    new = [j for j in jobs if j["url"] not in seen]
-    log.info("🆕  %d vagas novas (de %d encontradas)", len(new), len(jobs))
+    new = [j for j in jobs if not (job_seen_keys(j) & seen)]
+    log.info("[NEW]  %d vagas novas (de %d encontradas)", len(new), len(jobs))
     return new
 
 
@@ -246,7 +279,7 @@ def build_email_html(jobs: list[dict[str, str]]) -> str:
     for j in jobs:
         title    = j.get("title", "Vaga")
         company  = j.get("company", "—")
-        location = j.get("location", "—")
+        location = j.get("location", "Brasil")
         snippet  = j.get("snippet", "")[:200]
         url      = j["url"]
 
@@ -353,8 +386,9 @@ def run_job() -> None:
     # 4. Envia e-mail
     send_email(new_jobs)
 
-    # 5. Persiste URLs vistas
-    seen.update(j["url"] for j in jobs)
+    # 5. Persiste chaves vistas (URL normalizada + assinatura da vaga)
+    for j in jobs:
+        seen.update(job_seen_keys(j))
     save_seen(seen)
 
     log.info("✔  Ciclo concluído.\n")
