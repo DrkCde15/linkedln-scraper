@@ -27,6 +27,7 @@ from typing import Any
 from ddgs import DDGS
 import schedule
 import time
+import unicodedata
 
 from bs4 import BeautifulSoup
 
@@ -51,12 +52,19 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 
+def normalize_text(text: str) -> str:
+    """Normalize text for accent-insensitive comparisons."""
+    return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
+
+
 def is_closed_job_page(soup: BeautifulSoup) -> bool:
     """Return True when the page indicates that the job is closed."""
-    page_text = soup.get_text(" ", strip=True).lower()
+    page_text = normalize_text(soup.get_text(" ", strip=True))
     closed_markers = [
         "nao aceita mais candidaturas",
         "nao esta mais aceitando candidaturas",
+        "no acepta mas candidaturas",
+        "ya no acepta solicitudes",
         "vaga encerrada",
         "processo seletivo encerrado",
         "esta vaga foi encerrada",
