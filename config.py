@@ -1,6 +1,10 @@
 # ============================================================
 #  config.py  –  Edite APENAS este arquivo antes de rodar
 # ============================================================
+from dotenv import load_dotenv
+import os
+
+load_dotenv()  # Carrega variáveis de ambiente do arquivo .env
 
 # --- Busca ---------------------------------------------------
 SEARCH_QUERIES = [
@@ -13,13 +17,13 @@ MAX_RESULTS_PER_QUERY = 15          # resultados por busca
 # --- E-mail de envio (quem manda) ----------------------------
 SMTP_HOST     = "smtp.gmail.com"
 SMTP_PORT     = 587
-SMTP_USER     = "juka72918@gmail.com"       # <-- troque
-SMTP_PASSWORD = "gzkpfvktinrmmhgd"          # <-- App Password do Google
+SMTP_USER     = os.getenv("SMTP_USER")      # <-- troque
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")          # <-- App Password do Google
                                             # https://myaccount.google.com/apppasswords
 
 # --- E-mail de destino (quem recebe) -------------------------
 TO_EMAILS = [
-    "jcesarsantana215@gmail.com",                       # <-- troque
+    os.getenv("TO_EMAILS")                       # <-- troque
 ]
 
 # --- Agendamento ---------------------------------------------
