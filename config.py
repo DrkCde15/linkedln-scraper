@@ -8,13 +8,10 @@ load_dotenv()  # Carrega variáveis de ambiente do arquivo .env
 
 # --- Busca ---------------------------------------------------
 SEARCH_QUERIES = [
-    "python junior remoto site:linkedin.com/jobs",
-    "desenvolvedor python remoto site:linkedin.com/jobs",
-    "backend python remoto site:linkedin.com/jobs",
-    "dados remoto site:linkedin.com/jobs",
-    "devops remoto site:linkedin.com/jobs",
+    "python remoto site:linkedin.com/jobs",
+    "python remote site:linkedin.com/jobs",
 ]
-MAX_RESULTS_PER_QUERY = 15          # resultados por busca
+MAX_RESULTS_PER_QUERY = 30          # resultados por busca
 
 # --- E-mail de envio (quem manda) ----------------------------
 SMTP_HOST     = "smtp.gmail.com"

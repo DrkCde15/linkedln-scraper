@@ -57,25 +57,45 @@ def normalize_text(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
 
 
+CLOSED_JOB_MARKERS = [
+    "nao aceita mais candidaturas",
+    "nao esta mais aceitando candidaturas",
+    "no acepta mas candidaturas",
+    "ya no acepta solicitudes",
+    "vaga encerrada",
+    "processo seletivo encerrado",
+    "esta vaga foi encerrada",
+    "this job is no longer available",
+    "no longer accepting applications",
+    "applications are closed",
+    "position has been filled",
+    "job has expired",
+    "this position has been closed",
+]
+
+
+def is_closed_text(text: str) -> bool:
+    normalized = normalize_text(text or "")
+    return any(marker in normalized for marker in CLOSED_JOB_MARKERS)
+
+
 def is_closed_job_page(soup: BeautifulSoup) -> bool:
     """Return True when the page indicates that the job is closed."""
-    page_text = normalize_text(soup.get_text(" ", strip=True))
-    closed_markers = [
-        "nao aceita mais candidaturas",
-        "nao esta mais aceitando candidaturas",
-        "no acepta mas candidaturas",
-        "ya no acepta solicitudes",
-        "vaga encerrada",
-        "processo seletivo encerrado",
-        "esta vaga foi encerrada",
-        "this job is no longer available",
-        "no longer accepting applications",
-        "applications are closed",
-        "position has been filled",
-        "job has expired",
-        "this position has been closed",
-    ]
-    return any(marker in page_text for marker in closed_markers)
+    return is_closed_text(soup.get_text(" ", strip=True))
+
+
+def get_full_page_text(page, soup: BeautifulSoup) -> str:
+    """Collect as much text as possible from the loaded page."""
+    parts: list[str] = [soup.get_text(" ", strip=True)]
+    try:
+        parts.append(page.inner_text("body", timeout=5_000))
+    except Exception:
+        pass
+    try:
+        parts.append(page.title())
+    except Exception:
+        pass
+    return " ".join(p for p in parts if p)
 
 
 
@@ -158,6 +178,9 @@ def ddg_search() -> list[dict[str, str]]:
                     if not url:
                         continue
 
+                    if is_closed_text(f"{title} {snippet}"):
+                        continue
+
                     # Debug útil para entender o que o buscador está trazendo
                     log.debug("DDG hit: %s", url)
 
@@ -214,9 +237,24 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
         for job in jobs:
             try:
                 page.goto(job["url"], timeout=20_000, wait_until="domcontentloaded")
+                try:
+                    page.wait_for_load_state("networkidle", timeout=8_000)
+                except Exception:
+                    pass
+
+                # Scroll to trigger lazy content before reading full page text.
+                try:
+                    page.evaluate("window.scrollTo(0, document.body.scrollHeight)")
+                    page.wait_for_timeout(600)
+                    page.evaluate("window.scrollTo(0, 0)")
+                except Exception:
+                    pass
+
+                page.wait_for_timeout(700)
                 html = page.content()
                 soup = BeautifulSoup(html, "html.parser")
-                if is_closed_job_page(soup):
+                full_page_text = get_full_page_text(page, soup)
+                if is_closed_text(full_page_text):
                     log.info("[CLOSED] Vaga encerrada, ignorando: %s", job["url"])
                     continue
 
@@ -252,13 +290,12 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                     }
                 )
                 log.debug("✅  %s @ %s", title, company)
-
             except PWTimeout:
-                log.warning("⏱  Timeout em %s", job["url"])
-                enriched.append({**job, "company": "N/A", "location": "Brasil"})
+                log.warning("[SKIP] Timeout ao validar vaga: %s", job["url"])
+                continue
             except Exception as exc:
-                log.warning("⚠️  Erro em %s: %s", job["url"], exc)
-                enriched.append({**job, "company": "N/A", "location": "Brasil"})
+                log.warning("[SKIP] Erro ao validar vaga %s: %s", job["url"], exc)
+                continue
 
         browser.close()
 
