@@ -1,4 +1,4 @@
-"""
+﻿"""
 scraper.py  –  Busca vagas Python Junior Remoto no LinkedIn via DuckDuckGo
               e envia e-mail com as novidades.
 
