@@ -98,6 +98,59 @@ def get_full_page_text(page, soup: BeautifulSoup) -> str:
     return " ".join(p for p in parts if p)
 
 
+TARGET_LOCATIONS_NORM = {
+    "sao paulo, brasil",
+    "sao paulo, sao paulo, brasil",
+    "sao paulo e regiao, brasil",
+}
+
+AGE_PATTERN_PT = re.compile(
+    r"\bha\s*\d+\s*(?:minuto|minutos|hora|horas|dia|dias|semana|semanas|mes|meses|ano|anos)\b",
+    re.IGNORECASE,
+)
+AGE_PATTERN_EN = re.compile(
+    r"\b\d+\s*(?:minute|minutes|hour|hours|day|days|week|weeks|month|months|year|years)\s+ago\b",
+    re.IGNORECASE,
+)
+AGE_PATTERN_ES = re.compile(
+    r"\bhace\s*\d+\s*(?:minuto|minutos|hora|horas|dia|dias|semana|semanas|mes|meses|ano|anos)\b",
+    re.IGNORECASE,
+)
+
+ALLOWED_AGE_UNITS = (
+    "semana",
+    "semanas",
+    "week",
+    "weeks",
+    "mes",
+    "meses",
+    "month",
+    "months",
+)
+
+
+def extract_posted_age_text(text: str) -> str:
+    normalized = normalize_text(text or "")
+    for pattern in (AGE_PATTERN_PT, AGE_PATTERN_EN, AGE_PATTERN_ES):
+        match = pattern.search(normalized)
+        if match:
+            return match.group(0)
+    return ""
+
+
+def is_allowed_posted_age(age_text: str) -> bool:
+    if not age_text:
+        return False
+    age_norm = normalize_text(age_text)
+    return any(unit in age_norm for unit in ALLOWED_AGE_UNITS)
+
+
+def is_target_location(location_text: str) -> bool:
+    loc = normalize_text(location_text or "")
+    loc = re.sub(r"\s+", " ", loc).strip()
+    return loc in TARGET_LOCATIONS_NORM
+
+
 
 # ── Persistência de vagas já vistas ──────────────────────────────────────────
 def load_seen() -> set[str]:
@@ -263,6 +316,11 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                     el = soup.select_one(sel)
                     return el.get_text(strip=True) if el else ""
 
+                posted_age = extract_posted_age_text(full_page_text)
+                if not is_allowed_posted_age(posted_age):
+                    log.info("[SKIP] Idade fora do filtro (%s): %s", posted_age or "nao identificada", job["url"])
+                    continue
+
                 title   = (
                     _text("h1.top-card-layout__title")
                     or _text("h1.job-title")
@@ -273,23 +331,28 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                     _text("a.topcard__org-name-link")
                     or _text(".job-details-jobs-unified-top-card__company-name")
                     or _text(".topcard__flavor--black-link")
-                    or "—"
+                    or "N/A"
                 )
                 location = (
                     _text(".topcard__flavor--bullet")
                     or _text(".job-details-jobs-unified-top-card__bullet")
-                    or "Brasil"
+                    or ""
                 )
+
+                if not is_target_location(location):
+                    log.info("[SKIP] Local fora do filtro (%s): %s", location or "nao identificado", job["url"])
+                    continue
 
                 enriched.append(
                     {
                         **job,
                         "title":    title,
                         "company":  company,
-                        "location": location,
+                        "location": "Sao Paulo, Brasil",
+                        "posted_age": posted_age,
                     }
                 )
-                log.debug("✅  %s @ %s", title, company)
+                log.debug("[OK] %s @ %s", title, company)
             except PWTimeout:
                 log.warning("[SKIP] Timeout ao validar vaga: %s", job["url"])
                 continue
