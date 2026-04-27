@@ -87,9 +87,51 @@ def is_closed_text(text: str) -> bool:
     return any(marker in normalized for marker in CLOSED_JOB_MARKERS)
 
 
-def is_closed_job_page(soup: BeautifulSoup) -> bool:
-    """Return True when the page indicates that the job is closed."""
-    return is_closed_text(soup.get_text(" ", strip=True))
+def is_closed_job_page(page, soup: BeautifulSoup) -> bool:
+    """
+    Retorna True se a vaga estiver encerrada.
+    Verifica texto, banners de erro e a presença de botões de candidatura.
+    """
+    # 1. Verifica os marcadores de texto tradicionais
+    full_text = get_full_page_text(page, soup)
+    if is_closed_text(full_text):
+        return True
+
+    # 2. Verifica se existem banners de erro/aviso do LinkedIn (comuns em vagas fechadas)
+    error_selectors = [
+        ".artdeco-inline-feedback--error",
+        ".top-card-layout__error-message",
+        ".message-bubble",
+        ".closed-job-banner"
+    ]
+    for sel in error_selectors:
+        if soup.select_one(sel):
+            return True
+
+    # 3. Verifica a ausência de botões de candidatura
+    # No LinkedIn para visitantes, o botão costuma ter estas classes ou atributos
+    apply_selectors = [
+        "button.jobs-apply-button",
+        "button[data-is-full-width='true']",
+        ".jobs-s-apply",
+        "a[href*='/jobs/apply/']",
+        "button[aria-label*='Candidatar-se']",
+        "button[aria-label*='Apply']"
+    ]
+    has_apply_button = False
+    for sel in apply_selectors:
+        if soup.select_one(sel):
+            has_apply_button = True
+            break
+
+    # Se a página carregou mas não tem nenhum botão de candidatura, provavelmente está fechada
+    if not has_apply_button:
+        # Se nem o título da vaga foi encontrado, pode ser erro de carregamento, permitimos re-tentar
+        title_el = soup.select_one("h1")
+        if title_el and len(title_el.get_text()) > 5:
+            return True # Tem título mas não tem botão: fechada.
+
+    return False
 
 
 def get_full_page_text(page, soup: BeautifulSoup) -> str:
@@ -363,13 +405,15 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                 except Exception:
                     pass
 
-                page.wait_for_timeout(700)
+                page.wait_for_timeout(2000) # Espera 2s para o JS carregar banners de erro/status
                 html = page.content()
                 soup = BeautifulSoup(html, "html.parser")
-                full_page_text = get_full_page_text(page, soup)
-                if is_closed_text(full_page_text):
-                    log.info("[CLOSED] Vaga encerrada, ignorando: %s", job["url"])
+
+                if is_closed_job_page(page, soup):
+                    log.info("[CLOSED] Vaga encerrada ou indisponivel, ignorando: %s", job["url"])
                     continue
+
+                full_page_text = get_full_page_text(page, soup)
 
                 # Seletores LinkedIn (podem mudar com redesigns)
                 def _text(sel: str) -> str:
