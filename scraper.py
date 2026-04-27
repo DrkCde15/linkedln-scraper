@@ -1,4 +1,4 @@
-﻿"""
+"""
 scraper.py  –  Busca vagas Python Junior Remoto no LinkedIn via DuckDuckGo
               e envia e-mail com as novidades.
 
@@ -13,7 +13,6 @@ Estratégia:
 """
 
 from __future__ import annotations
-
 import json
 import logging
 import re
@@ -28,7 +27,6 @@ from ddgs import DDGS
 import schedule
 import time
 import unicodedata
-
 from bs4 import BeautifulSoup
 
 # Playwright é opcional – se não estiver instalado faz fallback gracioso
@@ -39,8 +37,12 @@ except ImportError:
     PLAYWRIGHT_AVAILABLE = False
 
 import config
+import io
 
-# ── Logging ──────────────────────────────────────────────────────────────────
+# Tenta configurar o stdout para UTF-8 para evitar erros com emojis no Windows
+if sys.platform == "win32":
+    sys.stdout = io.TextIOWrapper(sys.stdout.buffer, encoding='utf-8')
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s  %(levelname)-8s  %(message)s",
@@ -60,17 +62,23 @@ def normalize_text(text: str) -> str:
 CLOSED_JOB_MARKERS = [
     "nao aceita mais candidaturas",
     "nao esta mais aceitando candidaturas",
-    "no acepta mas candidaturas",
-    "ya no acepta solicitudes",
+    "inscricoes encerradas",
     "vaga encerrada",
+    "vaga pausada",
     "processo seletivo encerrado",
     "esta vaga foi encerrada",
+    "no acepta mas candidaturas",
+    "ya no acepta solicitudes",
+    "inscripciones cerradas",
     "this job is no longer available",
     "no longer accepting applications",
     "applications are closed",
     "position has been filled",
     "job has expired",
     "this position has been closed",
+    "job closed",
+    "not accepting applications",
+    "hiring has concluded",
 ]
 
 
@@ -102,6 +110,9 @@ TARGET_LOCATIONS_NORM = {
     "sao paulo, brasil",
     "sao paulo, sao paulo, brasil",
     "sao paulo e regiao, brasil",
+    "brasil",
+    "remoto",
+    "anywhere",
 }
 
 AGE_PATTERN_PT = re.compile(
@@ -118,6 +129,18 @@ AGE_PATTERN_ES = re.compile(
 )
 
 ALLOWED_AGE_UNITS = (
+    "minuto",
+    "minutos",
+    "minute",
+    "minutes",
+    "hora",
+    "horas",
+    "hour",
+    "hours",
+    "dia",
+    "dias",
+    "day",
+    "days",
     "semana",
     "semanas",
     "week",
@@ -139,16 +162,53 @@ def extract_posted_age_text(text: str) -> str:
 
 
 def is_allowed_posted_age(age_text: str) -> bool:
+    """
+    Retorna True se a idade for aceitável.
+    Agora permite 'nao identificada' para evitar perder vagas novas.
+    """
     if not age_text:
-        return False
-    age_norm = normalize_text(age_text)
-    return any(unit in age_norm for unit in ALLOWED_AGE_UNITS)
+        return True # Permite se não identificado
 
+    age_norm = normalize_text(age_text)
+
+    # Se for 'ano' ou 'year', é velha demais
+    if any(unit in age_norm for unit in ["ano", "anos", "year", "years"]):
+        return False
+
+    return True
+
+
+# Locais explicitamente ignorados (fora do Brasil/Remoto)
+EXCLUDED_LOCATIONS = {
+    "portugal", "espanha", "spain", "united states", "eua", "usa", "india",
+    "reino unido", "united kingdom", "uk", "argentina", "mexico", "madrid", "madri",
+    "lisboa", "porto", "barcelona", "berlim", "berlin", "london", "londres"
+}
 
 def is_target_location(location_text: str) -> bool:
-    loc = normalize_text(location_text or "")
+    """
+    Retorna True se o local for aceitável.
+    Agora mais permissivo: só bloqueia se for explicitamente um local excluído.
+    """
+    if not location_text:
+        return True  # Se não achou o local, permite (o DDG já filtrou)
+
+    loc = normalize_text(location_text)
     loc = re.sub(r"\s+", " ", loc).strip()
-    return loc in TARGET_LOCATIONS_NORM
+
+    # Se estiver na lista de permitidos antigos, OK
+    if loc in TARGET_LOCATIONS_NORM:
+        return True
+
+    # Se contiver palavras-chave positivas, OK
+    if any(k in loc for k in ["brasil", "remoto", "remote", "anywhere", "sao paulo"]):
+        return True
+
+    # Se contiver algum local explicitamente excluído, pula
+    if any(ex in loc for ex in EXCLUDED_LOCATIONS):
+        return False
+
+    return True # Por padrão, permite se não for um local proibido conhecido
 
 
 
@@ -321,26 +381,36 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                     log.info("[SKIP] Idade fora do filtro (%s): %s", posted_age or "nao identificada", job["url"])
                     continue
 
+                # Fallback: tentar extrair do Título da página se os seletores falharem
+                page_title = ""
+                try:
+                    page_title = page.title()
+                except:
+                    pass
+
                 title   = (
                     _text("h1.top-card-layout__title")
                     or _text("h1.job-title")
                     or _text("h1")
+                    or (page_title.split("|")[0].strip() if "|" in page_title else "")
                     or job["title"]
                 )
                 company = (
                     _text("a.topcard__org-name-link")
                     or _text(".job-details-jobs-unified-top-card__company-name")
                     or _text(".topcard__flavor--black-link")
+                    or (page_title.split("at")[-1].split("|")[0].strip() if " at " in page_title else "N/A")
                     or "N/A"
                 )
                 location = (
                     _text(".topcard__flavor--bullet")
                     or _text(".job-details-jobs-unified-top-card__bullet")
+                    or (page_title.split("|")[-2].strip() if page_title.count("|") >= 2 else "")
                     or ""
                 )
 
                 if not is_target_location(location):
-                    log.info("[SKIP] Local fora do filtro (%s): %s", location or "nao identificado", job["url"])
+                    log.info("[SKIP] Local fora do filtro (%s): %s", location or "vazio", job["url"])
                     continue
 
                 enriched.append(
