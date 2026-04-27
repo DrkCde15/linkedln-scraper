@@ -8,6 +8,9 @@ on:
 permissions:
   contents: write
 
+env:
+  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Resolve o aviso de deprecacao do Node 20
+
 jobs:
   scrape:
     runs-on: ubuntu-latest
@@ -27,27 +30,11 @@ jobs:
           playwright install chromium
           playwright install-deps
 
-      - name: Criar config com secrets
-        run: |
-          cat > config.py << 'EOF'
-          SEARCH_QUERIES = [
-            "python junior remoto site:linkedin.com/jobs",
-            "python developer junior remote Sao Paulo site:linkedin.com/jobs",
-            "desenvolvedor python junior remoto site:linkedin.com/jobs",
-          ]
-          MAX_RESULTS_PER_QUERY = 15
-          SMTP_HOST     = "smtp.gmail.com"
-          SMTP_PORT     = 587
-          SMTP_USER     = "${{ secrets.SMTP_USER }}"
-          SMTP_PASSWORD = "${{ secrets.SMTP_PASSWORD }}"
-          TO_EMAILS     = ["${{ secrets.TO_EMAIL }}"]
-          RUN_HOUR      = 8
-          RUN_MINUTE    = 0
-          SEEN_JOBS_FILE = "seen_jobs.json"
-          LOG_FILE       = "scraper.log"
-          EOF
-
       - name: Rodar scraper
+        env:
+          SMTP_USER: ${{ secrets.SMTP_USER }}
+          SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
+          TO_EMAILS: ${{ secrets.TO_EMAIL }}
         run: python scraper.py --once
 
       - name: Salvar seen_jobs.json no repositorio
@@ -61,3 +48,4 @@ jobs:
           else
             echo "seen_jobs.json nao encontrado; nada para versionar."
           fi
+
