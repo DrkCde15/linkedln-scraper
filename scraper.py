@@ -80,12 +80,78 @@ CLOSED_JOB_MARKERS = [
     "job closed",
     "not accepting applications",
     "hiring has concluded",
+    "we couldn't find this job",
+    "we couldnt find this job",
+    "we could not find this job",
+    "job posting is no longer available",
+    "this job posting is no longer available",
+    "vaga nao encontrada",
+    "pagina nao encontrada",
+    "page not found",
+    "this page does not exist",
+    "this page doesn't exist",
+    "something went wrong",
+    "no matching jobs found",
+]
+
+APPLY_SELECTORS = [
+    "button.jobs-apply-button",
+    "button[data-is-full-width='true']",
+    ".jobs-s-apply",
+    ".jobs-apply-button",
+    "a[href*='/jobs/apply/']",
+    "a[href*='trk=public_jobs_apply-link']",
+    "a[data-tracking-control-name*='apply']",
+    "button[aria-label*='Candidatar']",
+    "button[aria-label*='candidatar']",
+    "button[aria-label*='Apply']",
+    "button[aria-label*='apply']",
+]
+
+TITLE_SELECTORS = [
+    "h1.top-card-layout__title",
+    "h1.job-title",
+    ".top-card-layout__title",
+    ".job-details-jobs-unified-top-card__job-title",
+    "h1",
 ]
 
 
 def is_closed_text(text: str) -> bool:
     normalized = normalize_text(text or "")
     return any(marker in normalized for marker in CLOSED_JOB_MARKERS)
+
+
+def has_apply_evidence(page, soup: BeautifulSoup, full_text: str) -> bool:
+    for sel in APPLY_SELECTORS:
+        if soup.select_one(sel):
+            return True
+
+    normalized = normalize_text(full_text)
+    return any(
+        marker in normalized
+        for marker in [
+            "candidatar-se",
+            "candidatar se",
+            "candidate-se",
+            "candidatura simplificada",
+            "easy apply",
+            "apply now",
+            "apply for this job",
+        ]
+    )
+
+
+def has_job_title(soup: BeautifulSoup, page_title: str) -> bool:
+    for sel in TITLE_SELECTORS:
+        el = soup.select_one(sel)
+        if el and len(el.get_text(" ", strip=True)) >= 8:
+            return True
+
+    title = normalize_text(page_title or "")
+    if not title or "sign in" in title or "entrar" in title:
+        return False
+    return "linkedin" in title and ("job" in title or "vaga" in title)
 
 
 def is_closed_job_page(page, soup: BeautifulSoup) -> bool:
@@ -111,26 +177,19 @@ def is_closed_job_page(page, soup: BeautifulSoup) -> bool:
 
     # 3. Verifica a ausência de botões de candidatura
     # No LinkedIn para visitantes, o botão costuma ter estas classes ou atributos
-    apply_selectors = [
-        "button.jobs-apply-button",
-        "button[data-is-full-width='true']",
-        ".jobs-s-apply",
-        "a[href*='/jobs/apply/']",
-        "button[aria-label*='Candidatar-se']",
-        "button[aria-label*='Apply']"
-    ]
-    has_apply_button = False
-    for sel in apply_selectors:
-        if soup.select_one(sel):
-            has_apply_button = True
-            break
+    try:
+        page_title = page.title()
+    except Exception:
+        page_title = ""
 
-    # Se a página carregou mas não tem nenhum botão de candidatura, provavelmente está fechada
-    if not has_apply_button:
-        # Se nem o título da vaga foi encontrado, pode ser erro de carregamento, permitimos re-tentar
-        title_el = soup.select_one("h1")
-        if title_el and len(title_el.get_text()) > 5:
-            return True # Tem título mas não tem botão: fechada.
+    # Se nem conseguimos identificar uma vaga individual, nao arriscamos enviar.
+    if not has_job_title(soup, page_title):
+        return True
+
+    # Se nao ha sinal real de candidatura, provavelmente a vaga fechou ou a
+    # pagina caiu em login/erro. Preferimos perder vagas a mandar link morto.
+    if config.REQUIRE_APPLY_EVIDENCE and not has_apply_evidence(page, soup, full_text):
+        return True
 
     return False
 
@@ -154,8 +213,46 @@ TARGET_LOCATIONS_NORM = {
     "sao paulo, sao paulo, brasil",
     "sao paulo e regiao, brasil",
     "brasil",
-    "remoto",
-    "anywhere",
+    "brazil",
+    "remote, brazil",
+    "remote - brazil",
+    "remoto, brasil",
+    "remoto - brasil",
+}
+
+BRAZIL_LOCATION_TERMS = {
+    "brasil",
+    "brazil",
+    "sao paulo",
+    "rio de janeiro",
+    "belo horizonte",
+    "curitiba",
+    "porto alegre",
+    "florianopolis",
+    "brasilia",
+    "campinas",
+    "recife",
+    "salvador",
+    "fortaleza",
+    "goiania",
+    "vitoria",
+    "barueri",
+    "santos",
+    "ribeirao preto",
+    "sorocaba",
+    "minas gerais",
+    "rio grande do sul",
+    "santa catarina",
+    "parana",
+    "bahia",
+    "pernambuco",
+    "ceara",
+    "distrito federal",
+    "espirito santo",
+    "goias",
+    "amazonas",
+    "mato grosso",
+    "mato grosso do sul",
 }
 
 AGE_PATTERN_PT = re.compile(
@@ -221,37 +318,49 @@ def is_allowed_posted_age(age_text: str) -> bool:
     return True
 
 
-# Locais explicitamente ignorados (fora do Brasil/Remoto)
+# Locais explicitamente ignorados (fora do Brasil)
 EXCLUDED_LOCATIONS = {
     "portugal", "espanha", "spain", "united states", "eua", "usa", "india",
     "reino unido", "united kingdom", "uk", "argentina", "mexico", "madrid", "madri",
-    "lisboa", "porto", "barcelona", "berlim", "berlin", "london", "londres"
+    "lisboa", "porto", "barcelona", "berlim", "berlin", "london", "londres",
+    "latam", "latin america", "europe", "emea", "worldwide", "anywhere",
 }
 
-def is_target_location(location_text: str) -> bool:
+def has_brazil_location(text: str) -> bool:
+    loc = normalize_text(text)
+    loc = re.sub(r"\s+", " ", loc).strip()
+    if not loc:
+        return False
+    if loc in TARGET_LOCATIONS_NORM:
+        return True
+    if any(term in loc for term in BRAZIL_LOCATION_TERMS):
+        return True
+    return bool(
+        re.search(
+            r"\b(?:sp|rj|mg|pr|rs|sc|ba|pe|ce|df|es|ms|mt)\b"
+            r"(?:\s*,\s*|\s*-\s*)(?:brasil|brazil)\b",
+            loc,
+        )
+    )
+
+
+def is_target_location(location_text: str, context_text: str = "") -> bool:
     """
-    Retorna True se o local for aceitável.
-    Agora mais permissivo: só bloqueia se for explicitamente um local excluído.
+    Retorna True somente se a vaga tiver local brasileiro explicito.
     """
     if not location_text:
-        return True  # Se não achou o local, permite (o DDG já filtrou)
+        return False
 
     loc = normalize_text(location_text)
     loc = re.sub(r"\s+", " ", loc).strip()
 
-    # Se estiver na lista de permitidos antigos, OK
-    if loc in TARGET_LOCATIONS_NORM:
-        return True
-
-    # Se contiver palavras-chave positivas, OK
-    if any(k in loc for k in ["brasil", "remoto", "remote", "anywhere", "sao paulo"]):
-        return True
-
-    # Se contiver algum local explicitamente excluído, pula
     if any(ex in loc for ex in EXCLUDED_LOCATIONS):
         return False
 
-    return True # Por padrão, permite se não for um local proibido conhecido
+    if has_brazil_location(loc):
+        return True
+
+    return False
 
 
 
@@ -275,7 +384,7 @@ def save_seen(seen: set[str]) -> None:
 
 # ── Busca via DuckDuckGo ──────────────────────────────────────────────────────
 LINKEDIN_JOB_RE = re.compile(
-    r"linkedin\.com/jobs/(view|search|collections|jobs-in)/",
+    r"linkedin\.com/jobs/view/",
     re.IGNORECASE,
 )
 
@@ -348,6 +457,8 @@ def ddg_search() -> list[dict[str, str]]:
 
                     # Normaliza URL para reduzir duplicidade entre dom?nios/params
                     clean_url = normalize_linkedin_url(url)
+                    if "/jobs/view/" not in clean_url.lower():
+                        continue
                     if clean_url in seen_urls:
                         continue
 
@@ -374,7 +485,10 @@ def ddg_search() -> list[dict[str, str]]:
 def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
     """Visita cada URL e tenta extrair título, empresa e localidade do LinkedIn."""
     if not PLAYWRIGHT_AVAILABLE:
-        log.warning("Playwright não instalado – usando dados do DuckDuckGo apenas.")
+        if config.REQUIRE_PLAYWRIGHT_VALIDATION:
+            log.warning("Playwright nao instalado; pulando envio para evitar vagas nao validadas.")
+            return []
+        log.warning("Playwright nao instalado; usando dados do DuckDuckGo sem validacao.")
         return jobs
 
     enriched = []
@@ -393,6 +507,10 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
         for job in jobs:
             try:
                 page.goto(job["url"], timeout=20_000, wait_until="domcontentloaded")
+                final_url = normalize_linkedin_url(page.url)
+                if "/jobs/view/" not in final_url.lower():
+                    log.info("[SKIP] URL redirecionada para pagina nao individual: %s", page.url)
+                    continue
                 try:
                     page.wait_for_load_state("networkidle", timeout=8_000)
                 except Exception:
@@ -454,7 +572,7 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                     or ""
                 )
 
-                if not is_target_location(location):
+                if not is_target_location(location, full_page_text):
                     log.info("[SKIP] Local fora do filtro (%s): %s", location or "vazio", job["url"])
                     continue
 
@@ -463,7 +581,7 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                         **job,
                         "title":    title,
                         "company":  company,
-                        "location": "Sao Paulo, Brasil",
+                        "location": location,
                         "posted_age": posted_age,
                     }
                 )

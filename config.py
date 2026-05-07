@@ -30,8 +30,10 @@ def parse_email_list(value: str | None) -> list[str]:
 
 # --- Busca ---------------------------------------------------
 SEARCH_QUERIES = [
-    "python remoto site:linkedin.com/jobs",
-    "python remote site:linkedin.com/jobs",
+    "python remoto brasil site:linkedin.com/jobs/view",
+    "python junior remoto brasil site:linkedin.com/jobs/view",
+    "python remote brazil site:linkedin.com/jobs/view",
+    "desenvolvedor python brasil remoto site:linkedin.com/jobs/view",
 ]
 MAX_RESULTS_PER_QUERY = 30
 
@@ -51,6 +53,11 @@ TO_EMAILS = parse_email_list(
 
 # --- Agendamento local --------------------------------------
 RUN_INTERVAL_MINUTES = int(os.getenv("RUN_INTERVAL_MINUTES", "360"))
+
+# --- Validacao de disponibilidade ---------------------------
+# Mantemos True por padrao para evitar enviar vagas que o LinkedIn ja fechou.
+REQUIRE_PLAYWRIGHT_VALIDATION = env_bool("REQUIRE_PLAYWRIGHT_VALIDATION", default=True)
+REQUIRE_APPLY_EVIDENCE = env_bool("REQUIRE_APPLY_EVIDENCE", default=True)
 
 # --- Arquivos de estado -------------------------------------
 SEEN_JOBS_FILE = "seen_jobs.json"
