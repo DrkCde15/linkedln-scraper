@@ -17,6 +17,7 @@ import json
 import logging
 import re
 import smtplib
+import ssl
 import sys
 from datetime import datetime
 from email.mime.multipart import MIMEMultipart
@@ -552,13 +553,18 @@ def send_email(jobs: list[dict[str, str]]) -> None:
     if not jobs:
         log.info("📭  Nenhuma vaga nova. E-mail não enviado.")
         return
+    if not config.SMTP_USER or not config.SMTP_PASSWORD or not config.TO_EMAILS:
+        raise RuntimeError(
+            "Configuracao de e-mail incompleta. Defina EMAIL_SMTP_USER, "
+            "EMAIL_SMTP_PASSWORD e EMAIL_TO."
+        )
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = (
         f"🐍 {len(jobs)} nova(s) vaga(s) Python Junior Remoto – "
         f"{datetime.now().strftime('%d/%m/%Y')}"
     )
-    msg["From"] = config.SMTP_USER
+    msg["From"] = config.EMAIL_FROM
     msg["To"]   = ", ".join(config.TO_EMAILS)
 
     # Fallback texto plano
@@ -570,11 +576,22 @@ def send_email(jobs: list[dict[str, str]]) -> None:
     msg.attach(MIMEText(build_email_html(jobs), "html", "utf-8"))
 
     try:
-        with smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT) as server:
+        if config.EMAIL_USE_SSL:
+            server_context = ssl.create_default_context()
+            server = smtplib.SMTP_SSL(
+                config.SMTP_HOST,
+                config.SMTP_PORT,
+                context=server_context,
+            )
+        else:
+            server = smtplib.SMTP(config.SMTP_HOST, config.SMTP_PORT)
+        with server:
             server.ehlo()
-            server.starttls()
+            if config.EMAIL_USE_TLS and not config.EMAIL_USE_SSL:
+                server.starttls(context=ssl.create_default_context())
+                server.ehlo()
             server.login(config.SMTP_USER, config.SMTP_PASSWORD)
-            server.sendmail(config.SMTP_USER, config.TO_EMAILS, msg.as_string())
+            server.sendmail(config.EMAIL_FROM, config.TO_EMAILS, msg.as_string())
         log.info("📧  E-mail enviado para: %s", ", ".join(config.TO_EMAILS))
     except Exception as exc:
         log.error("❌  Falha ao enviar e-mail: %s", exc)
@@ -616,9 +633,11 @@ def main(once: bool = False) -> None:
     if once:
         return  # GitHub Actions: roda e termina
 
-    run_time = f"{config.RUN_HOUR:02d}:{config.RUN_MINUTE:02d}"
-    schedule.every().day.at(run_time).do(run_job)
-    log.info("⏰  Próxima execução agendada para %s", run_time)
+    schedule.every(config.RUN_INTERVAL_MINUTES).minutes.do(run_job)
+    log.info(
+        "⏰  Proxima execucao agendada a cada %s minuto(s)",
+        config.RUN_INTERVAL_MINUTES,
+    )
     while True:
         schedule.run_pending()
         time.sleep(30)

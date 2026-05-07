@@ -2,27 +2,21 @@ name: LinkedIn Job Scraper
 
 on:
   schedule:
-    - cron: '0 11 * * *'   # 08:00 horario de Brasilia (UTC-3 = 11:00 UTC)
+    - cron: "0 */6 * * *"
   workflow_dispatch:        # permite rodar manualmente pelo site
-
-permissions:
-  contents: write
-
-env:
-  FORCE_JAVASCRIPT_ACTIONS_TO_NODE24: true  # Resolve o aviso de deprecacao do Node 20
 
 jobs:
   scrape:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout do repositorio
+      - name: Checkout
         uses: actions/checkout@v4
 
-      - name: Configurar Python
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
-          python-version: '3.11'
+          python-version: "3.12"
 
       - name: Instalar dependencias
         run: |
@@ -30,22 +24,27 @@ jobs:
           playwright install chromium
           playwright install-deps
 
+      - name: Restore seen jobs
+        uses: actions/cache@v4
+        with:
+          path: seen_jobs.json
+          key: seen-jobs-${{ github.run_id }}
+          restore-keys: |
+            seen-jobs-
+
       - name: Rodar scraper
         env:
+          EMAIL_SMTP_HOST: ${{ secrets.EMAIL_SMTP_HOST }}
+          EMAIL_SMTP_PORT: "587"
+          EMAIL_USE_TLS: "true"
+          EMAIL_USE_SSL: "false"
+          EMAIL_SMTP_USER: ${{ secrets.EMAIL_SMTP_USER }}
+          EMAIL_SMTP_PASSWORD: ${{ secrets.EMAIL_SMTP_PASSWORD }}
+          EMAIL_FROM: ${{ secrets.EMAIL_FROM }}
+          EMAIL_TO: ${{ secrets.EMAIL_TO }}
           SMTP_USER: ${{ secrets.SMTP_USER }}
           SMTP_PASSWORD: ${{ secrets.SMTP_PASSWORD }}
-          TO_EMAILS: ${{ secrets.TO_EMAIL }}
+          TO_EMAILS: ${{ secrets.TO_EMAILS }}
+          TO_EMAIL: ${{ secrets.TO_EMAIL }}
         run: python scraper.py --once
-
-      - name: Salvar seen_jobs.json no repositorio
-        run: |
-          git config user.name  "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          if [ -f seen_jobs.json ]; then
-            git add seen_jobs.json
-            git diff --staged --quiet || git commit -m "chore: atualiza vagas vistas"
-            git push
-          else
-            echo "seen_jobs.json nao encontrado; nada para versionar."
-          fi
 

@@ -1,35 +1,57 @@
 # ============================================================
-#  config.py  –  Edite APENAS este arquivo antes de rodar
+#  config.py - configuracao do scraper
 # ============================================================
-from dotenv import load_dotenv
+from pathlib import Path
 import os
+import re
 
-load_dotenv()  # Carrega variáveis de ambiente do arquivo .env
+from dotenv import load_dotenv
+
+
+# Mesmo padrao do freela-scraper: aceita .env local e data/.env.
+load_dotenv()
+load_dotenv(Path("data") / ".env")
+
+
+def env_bool(name: str, default: bool = False) -> bool:
+    value = os.getenv(name)
+    if value is None or value.strip() == "":
+        return default
+    return value.strip().lower() in {"1", "true", "yes", "y", "on"}
+
+
+def parse_email_list(value: str | None) -> list[str]:
+    return [
+        item.strip()
+        for item in re.split(r"[,;\n]+", value or "")
+        if item.strip()
+    ]
+
 
 # --- Busca ---------------------------------------------------
 SEARCH_QUERIES = [
     "python remoto site:linkedin.com/jobs",
     "python remote site:linkedin.com/jobs",
 ]
-MAX_RESULTS_PER_QUERY = 30          # resultados por busca
+MAX_RESULTS_PER_QUERY = 30
 
-# --- E-mail de envio (quem manda) ----------------------------
-SMTP_HOST     = "smtp.gmail.com"
-SMTP_PORT     = 587
-SMTP_USER     = os.getenv("SMTP_USER")      # <-- troque
-SMTP_PASSWORD = os.getenv("SMTP_PASSWORD")          # <-- App Password do Google
-                                            # https://myaccount.google.com/apppasswords
+# --- E-mail de envio ----------------------------------------
+SMTP_HOST = os.getenv("EMAIL_SMTP_HOST") or os.getenv("SMTP_HOST") or "smtp.gmail.com"
+SMTP_PORT = int(os.getenv("EMAIL_SMTP_PORT") or os.getenv("SMTP_PORT") or "587")
+SMTP_USER = os.getenv("EMAIL_SMTP_USER") or os.getenv("SMTP_USER")
+SMTP_PASSWORD = os.getenv("EMAIL_SMTP_PASSWORD") or os.getenv("SMTP_PASSWORD")
+EMAIL_FROM = os.getenv("EMAIL_FROM") or os.getenv("SMTP_FROM") or SMTP_USER
+EMAIL_USE_SSL = env_bool("EMAIL_USE_SSL", default=env_bool("SMTP_USE_SSL", default=False))
+EMAIL_USE_TLS = env_bool("EMAIL_USE_TLS", default=env_bool("SMTP_USE_TLS", default=not EMAIL_USE_SSL))
 
-# --- E-mail de destino (quem recebe) -------------------------
-TO_EMAILS = [
-    os.getenv("TO_EMAILS")                       # <-- troque
-]
+# --- E-mail de destino --------------------------------------
+TO_EMAILS = parse_email_list(
+    os.getenv("EMAIL_TO") or os.getenv("TO_EMAILS") or os.getenv("TO_EMAIL")
+)
 
-# --- Agendamento ---------------------------------------------
-RUN_HOUR   = 8      # hora  (0-23)
-RUN_MINUTE = 0      # minuto (0-59)
-# Roda todo dia às 08:00
+# --- Agendamento local --------------------------------------
+RUN_INTERVAL_MINUTES = int(os.getenv("RUN_INTERVAL_MINUTES", "360"))
 
-# --- Arquivos de estado --------------------------------------
-SEEN_JOBS_FILE = "seen_jobs.json"           # persiste vagas já enviadas
-LOG_FILE       = "scraper.log"
+# --- Arquivos de estado -------------------------------------
+SEEN_JOBS_FILE = "seen_jobs.json"
+LOG_FILE = "scraper.log"
