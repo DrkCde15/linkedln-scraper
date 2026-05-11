@@ -29,13 +29,41 @@ def parse_email_list(value: str | None) -> list[str]:
 
 
 # --- Busca ---------------------------------------------------
+JOB_ALERT_TITLE = "Dados, IA, Backend, Cyberseguranca e Web"
+
 SEARCH_QUERIES = [
-    "python remoto brasil site:linkedin.com/jobs/view",
-    "python junior remoto brasil site:linkedin.com/jobs/view",
-    "python remote brazil site:linkedin.com/jobs/view",
-    "desenvolvedor python brasil remoto site:linkedin.com/jobs/view",
+    # Dados
+    "analista de dados remoto brasil site:linkedin.com/jobs/view",
+    "cientista de dados remoto brasil site:linkedin.com/jobs/view",
+    "engenheiro de dados remoto brasil site:linkedin.com/jobs/view",
+    "data analyst remote brazil site:linkedin.com/jobs/view",
+    "data engineer remote brazil site:linkedin.com/jobs/view",
+
+    # IA / Machine Learning
+    "inteligencia artificial remoto brasil site:linkedin.com/jobs/view",
+    "machine learning remoto brasil site:linkedin.com/jobs/view",
+    "engenheiro machine learning remoto brasil site:linkedin.com/jobs/view",
+    "ai engineer remote brazil site:linkedin.com/jobs/view",
+
+    # Backend
+    "desenvolvedor backend remoto brasil site:linkedin.com/jobs/view",
+    "backend developer remote brazil site:linkedin.com/jobs/view",
+    "python backend remoto brasil site:linkedin.com/jobs/view",
+    "node backend remoto brasil site:linkedin.com/jobs/view",
+
+    # Cyberseguranca
+    "seguranca da informacao remoto brasil site:linkedin.com/jobs/view",
+    "analista de seguranca remoto brasil site:linkedin.com/jobs/view",
+    "cybersecurity remote brazil site:linkedin.com/jobs/view",
+    "soc analyst remote brazil site:linkedin.com/jobs/view",
+
+    # Web
+    "desenvolvedor web remoto brasil site:linkedin.com/jobs/view",
+    "frontend remoto brasil site:linkedin.com/jobs/view",
+    "fullstack remoto brasil site:linkedin.com/jobs/view",
+    "react remote brazil site:linkedin.com/jobs/view",
 ]
-MAX_RESULTS_PER_QUERY = 30
+MAX_RESULTS_PER_QUERY = 20
 
 # --- E-mail de envio ----------------------------------------
 SMTP_HOST = os.getenv("EMAIL_SMTP_HOST") or os.getenv("SMTP_HOST") or "smtp.gmail.com"

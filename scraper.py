@@ -1,5 +1,5 @@
 """
-scraper.py  –  Busca vagas Python Junior Remoto no LinkedIn via DuckDuckGo
+scraper.py  –  Busca vagas tech remotas no LinkedIn via DuckDuckGo
               e envia e-mail com as novidades.
 
 Estratégia:
@@ -643,7 +643,7 @@ def build_email_html(jobs: list[dict[str, str]]) -> str:
     <div style="background:linear-gradient(135deg,#0a66c2,#0d4f9e);
                 border-radius:16px 16px 0 0;padding:28px 32px;text-align:center;">
       <h1 style="color:#fff;margin:0;font-size:22px;letter-spacing:-0.3px;">
-        🐍 Novas Vagas Python Junior Remoto
+        Novas vagas: {config.JOB_ALERT_TITLE}
       </h1>
       <p style="color:#bfdbfe;margin:6px 0 0;font-size:13px;">{now} · São Paulo</p>
     </div>
@@ -679,7 +679,7 @@ def send_email(jobs: list[dict[str, str]]) -> None:
 
     msg = MIMEMultipart("alternative")
     msg["Subject"] = (
-        f"🐍 {len(jobs)} nova(s) vaga(s) Python Junior Remoto – "
+        f"{len(jobs)} nova(s) vaga(s): {config.JOB_ALERT_TITLE} - "
         f"{datetime.now().strftime('%d/%m/%Y')}"
     )
     msg["From"] = config.EMAIL_FROM
