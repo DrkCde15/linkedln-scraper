@@ -60,29 +60,65 @@ def normalize_text(text: str) -> str:
     return unicodedata.normalize("NFKD", text).encode("ascii", "ignore").decode("ascii").lower()
 
 
+def contains_any_marker(text: str, markers: set[str] | list[str] | tuple[str, ...]) -> bool:
+    """Return True when a normalized marker appears as a phrase or whole word."""
+    normalized = normalize_text(text or "")
+    if not normalized:
+        return False
+
+    for marker in markers:
+        marker_norm = normalize_text(marker)
+        if not marker_norm:
+            continue
+        if re.search(r"[^\w\s]", marker_norm) or " " in marker_norm:
+            if marker_norm in normalized:
+                return True
+            continue
+        if re.search(rf"\b{re.escape(marker_norm)}\b", normalized):
+            return True
+    return False
+
+
 CLOSED_JOB_MARKERS = [
     "nao aceita mais candidaturas",
     "nao esta mais aceitando candidaturas",
+    "nao estamos mais aceitando candidaturas",
+    "nao recebe mais candidaturas",
+    "nao esta recebendo candidaturas",
     "inscricoes encerradas",
+    "candidaturas encerradas",
     "vaga encerrada",
+    "vaga expirada",
+    "vaga indisponivel",
     "vaga pausada",
     "processo seletivo encerrado",
     "esta vaga foi encerrada",
+    "esta vaga nao esta mais disponivel",
+    "essa vaga nao esta mais disponivel",
     "no acepta mas candidaturas",
     "ya no acepta solicitudes",
     "inscripciones cerradas",
     "this job is no longer available",
     "no longer accepting applications",
     "applications are closed",
+    "application period has ended",
     "position has been filled",
     "job has expired",
+    "job expired",
+    "this job has closed",
     "this position has been closed",
+    "posting has expired",
+    "posting expired",
     "job closed",
     "not accepting applications",
     "hiring has concluded",
     "we couldn't find this job",
     "we couldnt find this job",
     "we could not find this job",
+    "we couldn't find that job",
+    "we couldnt find that job",
+    "nao encontramos esta vaga",
+    "nao encontramos essa vaga",
     "job posting is no longer available",
     "this job posting is no longer available",
     "vaga nao encontrada",
@@ -92,21 +128,46 @@ CLOSED_JOB_MARKERS = [
     "this page doesn't exist",
     "something went wrong",
     "no matching jobs found",
+    "expired_jd_redirect",
 ]
 
 APPLY_SELECTORS = [
     "button.jobs-apply-button",
-    "button[data-is-full-width='true']",
     ".jobs-s-apply",
     ".jobs-apply-button",
     "a[href*='/jobs/apply/']",
     "a[href*='trk=public_jobs_apply-link']",
+    "a[href*='externalApply']",
     "a[data-tracking-control-name*='apply']",
     "button[aria-label*='Candidatar']",
     "button[aria-label*='candidatar']",
     "button[aria-label*='Apply']",
     "button[aria-label*='apply']",
 ]
+
+APPLY_TEXT_MARKERS = {
+    "candidatar-se",
+    "candidatar se",
+    "candidate-se",
+    "candidatura simplificada",
+    "easy apply",
+    "apply now",
+    "apply for this job",
+}
+
+NON_APPLY_TEXT_MARKERS = {
+    "salvar",
+    "save",
+    "compartilhar",
+    "share",
+    "entrar",
+    "sign in",
+    "login",
+    "join",
+    "criar alerta",
+    "job alert",
+    "alerta de vaga",
+}
 
 TITLE_SELECTORS = [
     "h1.top-card-layout__title",
@@ -118,28 +179,53 @@ TITLE_SELECTORS = [
 
 
 def is_closed_text(text: str) -> bool:
-    normalized = normalize_text(text or "")
-    return any(marker in normalized for marker in CLOSED_JOB_MARKERS)
+    return contains_any_marker(text, CLOSED_JOB_MARKERS)
 
 
 def has_apply_evidence(page, soup: BeautifulSoup, full_text: str) -> bool:
     for sel in APPLY_SELECTORS:
-        if soup.select_one(sel):
+        for el in soup.select(sel):
+            href = normalize_text(el.get("href") or "")
+            if "/jobs/apply/" in href or "public_jobs_apply-link" in href or "externalapply" in href:
+                return True
+
+            signal = " ".join(
+                str(part)
+                for part in [
+                    el.get_text(" ", strip=True),
+                    el.get("aria-label") or "",
+                    el.get("title") or "",
+                    el.get("data-tracking-control-name") or "",
+                    el.get("data-control-name") or "",
+                ]
+                if part
+            )
+            if contains_any_marker(signal, NON_APPLY_TEXT_MARKERS):
+                continue
+            if contains_any_marker(signal, APPLY_TEXT_MARKERS):
+                return True
+
+    # Last pass over visible buttons/links catches minor LinkedIn selector changes
+    # without accepting generic full-width sign-in or save buttons.
+    for el in soup.select("button, a"):
+        signal = " ".join(
+            str(part)
+            for part in [
+                el.get_text(" ", strip=True),
+                el.get("aria-label") or "",
+                el.get("title") or "",
+            ]
+            if part
+        )
+        href = normalize_text(el.get("href") or "")
+        if "/jobs/apply/" in href or "public_jobs_apply-link" in href or "externalapply" in href:
+            return True
+        if contains_any_marker(signal, NON_APPLY_TEXT_MARKERS):
+            continue
+        if contains_any_marker(signal, APPLY_TEXT_MARKERS):
             return True
 
-    normalized = normalize_text(full_text)
-    return any(
-        marker in normalized
-        for marker in [
-            "candidatar-se",
-            "candidatar se",
-            "candidate-se",
-            "candidatura simplificada",
-            "easy apply",
-            "apply now",
-            "apply for this job",
-        ]
-    )
+    return False
 
 
 def has_job_title(soup: BeautifulSoup, page_title: str) -> bool:
@@ -159,6 +245,13 @@ def is_closed_job_page(page, soup: BeautifulSoup) -> bool:
     Retorna True se a vaga estiver encerrada.
     Verifica texto, banners de erro e a presença de botões de candidatura.
     """
+    try:
+        current_url = normalize_text(page.url)
+        if "expired_jd_redirect" in current_url:
+            return True
+    except Exception:
+        pass
+
     # 1. Verifica os marcadores de texto tradicionais
     full_text = get_full_page_text(page, soup)
     if is_closed_text(full_text):
@@ -255,6 +348,33 @@ BRAZIL_LOCATION_TERMS = {
     "mato grosso do sul",
 }
 
+REMOTE_MARKERS = {
+    "remote",
+    "remoto",
+    "remota",
+    "home office",
+    "home-office",
+    "work from home",
+    "trabalho remoto",
+    "anywhere in brazil",
+    "anywhere from brazil",
+    "100% remote",
+    "100% remoto",
+}
+
+NON_REMOTE_MARKERS = {
+    "presencial",
+    "hibrido",
+    "hybrid",
+    "on-site",
+    "on site",
+    "onsite",
+    "not remote",
+    "no remote",
+    "nao remoto",
+    "nao remota",
+}
+
 AGE_PATTERN_PT = re.compile(
     r"\bha\s*\d+\s*(?:minuto|minutos|hora|horas|dia|dias|semana|semanas|mes|meses|ano|anos)\b",
     re.IGNORECASE,
@@ -301,30 +421,110 @@ def extract_posted_age_text(text: str) -> str:
     return ""
 
 
-def is_allowed_posted_age(age_text: str) -> bool:
+def parse_job_age_to_days(age_text: str) -> int | None:
     """
-    Retorna True se a idade for aceitável.
-    Agora permite 'nao identificada' para evitar perder vagas novas.
+    Converte texto de idade da vaga para número de dias.
+    Retorna None se não conseguir parsear.
     """
     if not age_text:
-        return True # Permite se não identificado
+        return None
 
     age_norm = normalize_text(age_text)
 
-    # Se for 'ano' ou 'year', é velha demais
-    if any(unit in age_norm for unit in ["ano", "anos", "year", "years"]):
-        return False
+    # Extrai número
+    match = re.search(r"(\d+)", age_norm)
+    if not match:
+        return None
+    count = int(match.group(1))
 
-    return True
+    # Detecta unidade e converte para dias
+    if any(u in age_norm for u in ["ano", "anos", "year", "years"]):
+        return count * 365
+    if any(u in age_norm for u in ["mes", "meses", "month", "months"]):
+        return count * 30
+    if any(u in age_norm for u in ["semana", "semanas", "week", "weeks"]):
+        return count * 7
+    if any(u in age_norm for u in ["dia", "dias", "day", "days"]):
+        return count
+    if any(u in age_norm for u in ["hora", "horas", "hour", "hours"]):
+        return 1
+    if any(u in age_norm for u in ["minuto", "minutos", "minute", "minutes"]):
+        return 1
+
+    return None
+
+
+def is_allowed_posted_age(age_text: str) -> bool:
+    """
+    Retorna True se a vaga for recente (até MAX_JOB_AGE_DAYS dias).
+    """
+    if not age_text:
+        return not config.REQUIRE_POSTED_AGE
+
+    days = parse_job_age_to_days(age_text)
+    if days is None:
+        return not config.REQUIRE_POSTED_AGE
+
+    return days <= config.MAX_JOB_AGE_DAYS
 
 
 # Locais explicitamente ignorados (fora do Brasil)
 EXCLUDED_LOCATIONS = {
     "portugal", "espanha", "spain", "united states", "eua", "usa", "india",
-    "reino unido", "united kingdom", "uk", "argentina", "mexico", "madrid", "madri",
+    "reino unido", "united kingdom", "uk", "argentina", "mexico", "madri",
     "lisboa", "porto", "barcelona", "berlim", "berlin", "london", "londres",
     "latam", "latin america", "europe", "emea", "worldwide", "anywhere",
+    "canada", "chile", "colombia", "peru", "uruguay", "germany", "france",
+    "netherlands", "australia", "singapore", "south africa",
 }
+
+SENIORITY_BLOCKLIST = {
+    "senior", "principal", "staff", "lead", "architect", "manager", "diretor",
+    "especialista", "pleno", "mid-level", "mid level", "experienced",
+    "sr", "sr.", "pl", "pl.", "sênior", "coordenador", "coordinator",
+    "head", "tech lead", "team lead", "10+ years", "8+ years", "5+ years",
+}
+
+JUNIOR_MARKERS = {
+    "junior", "jr", "jr.", "estagiario", "estágio", "estagio", "trainee",
+    "intern", "interns", "internship", "entry level", "entry-level",
+    "starter", "graduate", "recém", "recem", "iniciante", "começante",
+    "comecante",
+}
+
+TARGET_ROLE_MARKERS = {
+    "dados", "data", "analytics", "analyst", "bi", "business intelligence",
+    "sql", "cientista de dados", "engenheiro de dados", "machine learning",
+    "inteligencia artificial", "ia", "ai", "ml", "llm", "nlp", "backend",
+    "back-end", "back end", "developer", "desenvolvedor", "programador",
+    "software", "engenheiro de software", "python", "node", "node.js",
+    "javascript", "typescript", "api", "cybersecurity", "cyber",
+    "seguranca", "segurança", "seguranca da informacao", "security", "soc",
+    "appsec", "devsecops", "frontend", "front-end", "front end", "fullstack",
+    "full-stack", "react", "reactjs", "web",
+}
+
+ROLE_BLOCKLIST = {
+    "marketing", "sales", "vendas", "comercial", "financeiro", "contabil",
+    "contabilidade", "administrativo", "rh", "recursos humanos", "recruiter",
+    "recrutador", "customer success", "sucesso do cliente", "atendimento",
+    "suporte", "support", "designer", "product manager", "produto",
+}
+
+OUT_OF_SCOPE_TITLE_MARKERS = {
+    "banco de talentos",
+    "talent pool",
+    "cadastro reserva",
+    "pipeline",
+    "jovem aprendiz",
+    "apprentice",
+    "data entry",
+}
+
+EXPERIENCE_BLOCK_RE = re.compile(
+    r"\b(?:[4-9]|[1-9]\d)\+?\s*(?:anos?|years?)\b",
+    re.IGNORECASE,
+)
 
 def has_brazil_location(text: str) -> bool:
     loc = normalize_text(text)
@@ -344,24 +544,78 @@ def has_brazil_location(text: str) -> bool:
     )
 
 
+def has_remote_signal(*texts: str) -> bool:
+    combined = " ".join(text for text in texts if text)
+    return contains_any_marker(combined, REMOTE_MARKERS)
+
+
+def has_non_remote_signal(*texts: str) -> bool:
+    combined = " ".join(text for text in texts if text)
+    return contains_any_marker(combined, NON_REMOTE_MARKERS)
+
+
 def is_target_location(location_text: str, context_text: str = "") -> bool:
     """
-    Retorna True somente se a vaga tiver local brasileiro explicito.
+    Retorna True somente se a vaga tiver local brasileiro explicito e,
+    por padrao, sinal claro de trabalho remoto.
     """
     if not location_text:
         return False
 
     loc = normalize_text(location_text)
     loc = re.sub(r"\s+", " ", loc).strip()
+    context = normalize_text(context_text)
 
-    if any(ex in loc for ex in EXCLUDED_LOCATIONS):
+    if contains_any_marker(loc, EXCLUDED_LOCATIONS):
         return False
 
     if has_brazil_location(loc):
-        return True
+        if not config.REQUIRE_REMOTE:
+            return True
+        if has_non_remote_signal(loc, context):
+            return False
+        return has_remote_signal(loc, context)
 
     return False
 
+
+def has_seniority_block(text: str) -> bool:
+    focused = normalize_text(text)
+    return contains_any_marker(focused, SENIORITY_BLOCKLIST) or bool(EXPERIENCE_BLOCK_RE.search(focused))
+
+
+def is_junior_or_intern(title: str, supporting_text: str) -> bool:
+    """
+    Retorna True se a vaga for de nível junior ou estágio.
+    Usa texto focado no resultado/top card para nao capturar vagas recomendadas.
+    """
+    combined = f"{title} {supporting_text}"
+    if has_seniority_block(combined):
+        return False
+
+    return contains_any_marker(combined, JUNIOR_MARKERS)
+
+
+def is_target_role(title: str, supporting_text: str = "") -> bool:
+    """
+    Confirma que a vaga pertence ao escopo tech buscado.
+    """
+    if contains_any_marker(title, OUT_OF_SCOPE_TITLE_MARKERS):
+        return False
+
+    combined = f"{title} {supporting_text}"
+    has_target = contains_any_marker(combined, TARGET_ROLE_MARKERS)
+    if not has_target:
+        return False
+
+    # Bloqueia areas claramente fora do recorte quando o alvo tech nao aparece
+    # no titulo. Isso evita descartar "Analista de Dados" por conter "analyst"
+    # na descricao, mas barra "Analista Financeiro Jr".
+    title_has_target = contains_any_marker(title, TARGET_ROLE_MARKERS)
+    if not title_has_target and contains_any_marker(title, ROLE_BLOCKLIST):
+        return False
+
+    return True
 
 
 # ── Persistência de vagas já vistas ──────────────────────────────────────────
@@ -443,7 +697,18 @@ def ddg_search() -> list[dict[str, str]]:
                     if not url:
                         continue
 
-                    if is_closed_text(f"{title} {snippet}"):
+                    result_text = f"{title} {snippet}"
+                    if is_closed_text(result_text):
+                        continue
+
+                    posted_age = extract_posted_age_text(result_text)
+                    if posted_age and not is_allowed_posted_age(posted_age):
+                        continue
+
+                    if not is_junior_or_intern(title, snippet):
+                        continue
+
+                    if config.REQUIRE_TARGET_ROLE and not is_target_role(title, snippet):
                         continue
 
                     # Debug útil para entender o que o buscador está trazendo
@@ -537,11 +802,24 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                 # Seletores LinkedIn (podem mudar com redesigns)
                 def _text(sel: str) -> str:
                     el = soup.select_one(sel)
-                    return el.get_text(strip=True) if el else ""
+                    return el.get_text(" ", strip=True) if el else ""
 
-                posted_age = extract_posted_age_text(full_page_text)
+                top_card_text = (
+                    _text("section.top-card-layout")
+                    or _text(".job-details-jobs-unified-top-card")
+                    or ""
+                )
+                workplace = (
+                    _text(".job-details-jobs-unified-top-card__workplace-type")
+                    or _text(".topcard__flavor--metadata")
+                    or ""
+                )
+
+                posted_age = extract_posted_age_text(top_card_text) or extract_posted_age_text(full_page_text)
                 if not is_allowed_posted_age(posted_age):
-                    log.info("[SKIP] Idade fora do filtro (%s): %s", posted_age or "nao identificada", job["url"])
+                    days = parse_job_age_to_days(posted_age)
+                    reason = "idade nao identificada" if not posted_age else f"idade fora do filtro ({posted_age} = ~{days or 0} dias)"
+                    log.info("[SKIP] %s: %s", reason, job["url"])
                     continue
 
                 # Fallback: tentar extrair do Título da página se os seletores falharem
@@ -572,8 +850,27 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                     or ""
                 )
 
-                if not is_target_location(location, full_page_text):
-                    log.info("[SKIP] Local fora do filtro (%s): %s", location or "vazio", job["url"])
+                focused_scope_text = " ".join(
+                    part
+                    for part in [
+                        job.get("title", ""),
+                        job.get("snippet", ""),
+                        top_card_text,
+                        workplace,
+                    ]
+                    if part
+                )
+
+                if not is_target_location(location, focused_scope_text):
+                    log.info("[SKIP] Local/remoto fora do filtro (%s | %s): %s", location or "vazio", workplace or "sem modalidade", job["url"])
+                    continue
+
+                if config.REQUIRE_TARGET_ROLE and not is_target_role(title, focused_scope_text):
+                    log.info("[SKIP] Area fora do escopo tech: %s", job["url"])
+                    continue
+
+                if not is_junior_or_intern(title, focused_scope_text):
+                    log.info("[SKIP] Nível não é junior/estágio: %s", job["url"])
                     continue
 
                 enriched.append(
@@ -582,6 +879,7 @@ def enrich_with_playwright(jobs: list[dict[str, str]]) -> list[dict[str, str]]:
                         "title":    title,
                         "company":  company,
                         "location": location,
+                        "workplace": workplace,
                         "posted_age": posted_age,
                     }
                 )

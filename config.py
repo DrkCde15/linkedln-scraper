@@ -29,39 +29,49 @@ def parse_email_list(value: str | None) -> list[str]:
 
 
 # --- Busca ---------------------------------------------------
-JOB_ALERT_TITLE = "Dados, IA, Backend, Cyberseguranca e Web"
+JOB_ALERT_TITLE = "Vagas Junior e Estágio - Tech"
 
 SEARCH_QUERIES = [
-    # Dados
-    "analista de dados remoto brasil site:linkedin.com/jobs/view",
-    "cientista de dados remoto brasil site:linkedin.com/jobs/view",
-    "engenheiro de dados remoto brasil site:linkedin.com/jobs/view",
-    "data analyst remote brazil site:linkedin.com/jobs/view",
-    "data engineer remote brazil site:linkedin.com/jobs/view",
+    # Dados - Junior/Estágio
+    "analista de dados junior remoto brasil site:linkedin.com/jobs/view",
+    "cientista de dados junior remoto brasil site:linkedin.com/jobs/view",
+    "engenheiro de dados junior remoto brasil site:linkedin.com/jobs/view",
+    "estagiario dados remoto brasil site:linkedin.com/jobs/view",
+    "data analyst junior remote brazil site:linkedin.com/jobs/view",
+    "data engineer junior remote brazil site:linkedin.com/jobs/view",
+    "intern data analyst remote brazil site:linkedin.com/jobs/view",
 
-    # IA / Machine Learning
-    "inteligencia artificial remoto brasil site:linkedin.com/jobs/view",
-    "machine learning remoto brasil site:linkedin.com/jobs/view",
-    "engenheiro machine learning remoto brasil site:linkedin.com/jobs/view",
-    "ai engineer remote brazil site:linkedin.com/jobs/view",
+    # IA / Machine Learning - Junior/Estágio
+    "inteligencia artificial junior remoto brasil site:linkedin.com/jobs/view",
+    "machine learning junior remoto brasil site:linkedin.com/jobs/view",
+    "engenheiro machine learning junior remoto brasil site:linkedin.com/jobs/view",
+    "estagiario machine learning remoto brasil site:linkedin.com/jobs/view",
+    "ai engineer junior remote brazil site:linkedin.com/jobs/view",
+    "intern ai remote brazil site:linkedin.com/jobs/view",
 
-    # Backend
-    "desenvolvedor backend remoto brasil site:linkedin.com/jobs/view",
-    "backend developer remote brazil site:linkedin.com/jobs/view",
-    "python backend remoto brasil site:linkedin.com/jobs/view",
-    "node backend remoto brasil site:linkedin.com/jobs/view",
+    # Backend - Junior/Estágio
+    "desenvolvedor backend junior remoto brasil site:linkedin.com/jobs/view",
+    "backend developer junior remote brazil site:linkedin.com/jobs/view",
+    "estagiario backend remoto brasil site:linkedin.com/jobs/view",
+    "python backend junior remoto brasil site:linkedin.com/jobs/view",
+    "node backend junior remoto brasil site:linkedin.com/jobs/view",
+    "intern backend remote brazil site:linkedin.com/jobs/view",
 
-    # Cyberseguranca
-    "seguranca da informacao remoto brasil site:linkedin.com/jobs/view",
-    "analista de seguranca remoto brasil site:linkedin.com/jobs/view",
-    "cybersecurity remote brazil site:linkedin.com/jobs/view",
-    "soc analyst remote brazil site:linkedin.com/jobs/view",
+    # Cyberseguranca - Junior/Estágio
+    "seguranca da informacao junior remoto brasil site:linkedin.com/jobs/view",
+    "analista de seguranca junior remoto brasil site:linkedin.com/jobs/view",
+    "estagiario cybersecurity remoto brasil site:linkedin.com/jobs/view",
+    "cybersecurity junior remote brazil site:linkedin.com/jobs/view",
+    "soc analyst junior remote brazil site:linkedin.com/jobs/view",
+    "intern cybersecurity remote brazil site:linkedin.com/jobs/view",
 
-    # Web
-    "desenvolvedor web remoto brasil site:linkedin.com/jobs/view",
-    "frontend remoto brasil site:linkedin.com/jobs/view",
-    "fullstack remoto brasil site:linkedin.com/jobs/view",
-    "react remote brazil site:linkedin.com/jobs/view",
+    # Web - Junior/Estágio
+    "desenvolvedor web junior remoto brasil site:linkedin.com/jobs/view",
+    "frontend junior remoto brasil site:linkedin.com/jobs/view",
+    "fullstack junior remoto brasil site:linkedin.com/jobs/view",
+    "estagiario frontend remoto brasil site:linkedin.com/jobs/view",
+    "react junior remote brazil site:linkedin.com/jobs/view",
+    "intern frontend remote brazil site:linkedin.com/jobs/view",
 ]
 MAX_RESULTS_PER_QUERY = 20
 
@@ -86,6 +96,12 @@ RUN_INTERVAL_MINUTES = int(os.getenv("RUN_INTERVAL_MINUTES", "360"))
 # Mantemos True por padrao para evitar enviar vagas que o LinkedIn ja fechou.
 REQUIRE_PLAYWRIGHT_VALIDATION = env_bool("REQUIRE_PLAYWRIGHT_VALIDATION", default=True)
 REQUIRE_APPLY_EVIDENCE = env_bool("REQUIRE_APPLY_EVIDENCE", default=True)
+REQUIRE_REMOTE = env_bool("REQUIRE_REMOTE", default=True)
+REQUIRE_TARGET_ROLE = env_bool("REQUIRE_TARGET_ROLE", default=True)
+
+# --- Filtro de idade de vagas (dias) ---------------------------
+MAX_JOB_AGE_DAYS = int(os.getenv("MAX_JOB_AGE_DAYS", "7"))
+REQUIRE_POSTED_AGE = env_bool("REQUIRE_POSTED_AGE", default=True)
 
 # --- Arquivos de estado -------------------------------------
 SEEN_JOBS_FILE = "seen_jobs.json"
