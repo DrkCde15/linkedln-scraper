@@ -17,6 +17,27 @@ log = logging.getLogger(__name__)
 DEFAULT_EMAIL_TITLE = "Vaga"
 DEFAULT_LOCATION = "Brasil"
 EMAIL_SNIPPET_MAX_CHARS = 200
+GMAIL_APP_PASSWORD_HELP = (
+    "Para Gmail, gere uma senha de app de 16 caracteres e salve-a em "
+    "EMAIL_SMTP_PASSWORD ou SMTP_PASSWORD. A senha normal da conta costuma "
+    "ser recusada pelo SMTP."
+)
+SMTP_CREDENTIALS_HELP = (
+    "Confira tambem se EMAIL_SMTP_USER/SMTP_USER e EMAIL_FROM usam a conta "
+    "correta ou estao autorizados para envio."
+)
+
+
+class EmailConfigurationError(RuntimeError):
+    """Configuração obrigatória para envio de e-mail não foi encontrada."""
+
+
+class EmailDeliveryError(RuntimeError):
+    """Falha esperada durante o envio de e-mail."""
+
+
+class EmailAuthenticationError(EmailDeliveryError):
+    """Credenciais SMTP recusadas pelo servidor."""
 
 
 def send_email(jobs: list[Job]) -> None:
@@ -27,14 +48,27 @@ def send_email(jobs: list[Job]) -> None:
     ensure_email_configured()
     message = build_email_message(jobs)
     try:
+        deliver_email(message)
+        log.info("📧  E-mail enviado para: %s", ", ".join(config.TO_EMAILS))
+    except EmailDeliveryError as exc:
+        log.error("❌  %s", exc)
+        raise
+
+
+def deliver_email(message: MIMEMultipart) -> None:
+    try:
         with create_smtp_server() as server:
             prepare_smtp_server(server)
             server.login(config.SMTP_USER, config.SMTP_PASSWORD)
             server.sendmail(config.EMAIL_FROM, config.TO_EMAILS, message.as_string())
-        log.info("📧  E-mail enviado para: %s", ", ".join(config.TO_EMAILS))
-    except Exception as exc:
-        log.error("❌  Falha ao enviar e-mail: %s", exc)
-        raise
+    except smtplib.SMTPAuthenticationError as exc:
+        raise EmailAuthenticationError(build_smtp_authentication_error_message(exc)) from exc
+    except smtplib.SMTPException as exc:
+        raise EmailDeliveryError(f"Falha SMTP ao enviar e-mail: {exc}") from exc
+    except OSError as exc:
+        raise EmailDeliveryError(
+            f"Falha de rede ao conectar em {config.SMTP_HOST}:{config.SMTP_PORT}: {exc}"
+        ) from exc
 
 
 def ensure_email_configured() -> None:
@@ -48,7 +82,25 @@ def ensure_email_configured() -> None:
         if not value
     ]
     if missing_fields:
-        raise RuntimeError("Configuracao de e-mail incompleta: " + ", ".join(missing_fields))
+        raise EmailConfigurationError(
+            "Configuracao de e-mail incompleta: " + ", ".join(missing_fields)
+        )
+
+
+def build_smtp_authentication_error_message(exc: smtplib.SMTPAuthenticationError) -> str:
+    server_response = decode_smtp_response(exc.smtp_error)
+    return (
+        "Falha de autenticacao SMTP. "
+        f"{GMAIL_APP_PASSWORD_HELP} "
+        f"{SMTP_CREDENTIALS_HELP} "
+        f"Resposta do servidor: {server_response}"
+    )
+
+
+def decode_smtp_response(response: object) -> str:
+    if isinstance(response, bytes):
+        return response.decode("utf-8", errors="replace").strip()
+    return str(response).strip()
 
 
 def build_email_message(jobs: list[Job]) -> MIMEMultipart:
