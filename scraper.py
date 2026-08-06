@@ -1,5 +1,6 @@
 """
-Orquestra a busca de vagas tech remotas e o envio de alertas por e-mail.
+Orquestra a busca de vagas tech (estagio/junior/pleno) no Brasil
+e o envio de alertas por e-mail.
 """
 
 from __future__ import annotations
@@ -15,9 +16,9 @@ from datetime import datetime
 import config
 from emailer import send_email
 from job_search import ddg_search
-from linkedin import enrich_with_playwright, job_seen_keys
 from models import Job
 from storage import load_seen, save_seen
+from validation import enrich_with_playwright, job_seen_keys
 
 
 SCHEDULER_SLEEP_SECONDS = 30
@@ -81,7 +82,7 @@ def should_run_once(argv: Iterable[str]) -> bool:
 
 
 def run_once() -> None:
-    log.info("🚀  LinkedIn Job Scraper iniciado")
+    log.info("🚀  Job Scraper iniciado")
     run_job()
 
 

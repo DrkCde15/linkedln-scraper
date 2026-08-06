@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import datetime
 import re
 
 import config
@@ -56,6 +57,28 @@ CLOSED_JOB_MARKERS = {
     "something went wrong",
     "no matching jobs found",
     "expired_jd_redirect",
+    "essa vaga nao existe mais",
+    "esta vaga nao existe mais",
+    "a vaga nao existe mais",
+    "vaga nao existe mais",
+    "essa vaga nao existe",
+    "esta vaga nao existe",
+    "a vaga nao existe",
+    "essa vaga foi preenchida",
+    "vaga preenchida",
+    "foi preenchida",
+    "vaga expirada ou indisponivel",
+    "essa vaga expirou",
+    "esta vaga expirou",
+    "vaga encerrada ou preenchida",
+    "processo seletivo finalizado",
+    "candidaturas finalizadas",
+    "inscricoes finalizadas",
+    "job posting has been filled",
+    "this position has been filled",
+    "esta vacante ya no esta disponible",
+    "ya no esta disponible",
+    "vacante expirada",
 }
 
 NORMALIZED_TARGET_LOCATIONS = {
@@ -94,6 +117,11 @@ BRAZIL_LOCATION_TERMS = {
     "pernambuco",
     "porto alegre",
     "recife",
+    "remoto",
+    "remota",
+    "remote",
+    "home office",
+    "home-office",
     "ribeirao preto",
     "rio de janeiro",
     "rio grande do sul",
@@ -158,7 +186,6 @@ EXCLUDED_LOCATION_MARKERS = {
     "europe",
     "emea",
     "worldwide",
-    "anywhere",
     "canada",
     "chile",
     "colombia",
@@ -174,6 +201,7 @@ EXCLUDED_LOCATION_MARKERS = {
 
 SENIORITY_BLOCKLIST = {
     "senior",
+    "sênior",
     "principal",
     "staff",
     "lead",
@@ -181,15 +209,9 @@ SENIORITY_BLOCKLIST = {
     "manager",
     "diretor",
     "especialista",
-    "pleno",
-    "mid-level",
-    "mid level",
     "experienced",
     "sr",
     "sr.",
-    "pl",
-    "pl.",
-    "sênior",
     "coordenador",
     "coordinator",
     "head",
@@ -220,6 +242,15 @@ JUNIOR_MARKERS = {
     "iniciante",
     "começante",
     "comecante",
+}
+
+PLENO_MARKERS = {
+    "pleno",
+    "pl",
+    "pl.",
+    "mid-level",
+    "mid level",
+    "midlevel",
 }
 
 TARGET_ROLE_MARKERS = {
@@ -318,7 +349,18 @@ AGE_PATTERNS = [
         r"\bhace\s*\d+\s*(?:minuto|minutos|hora|horas|dia|dias|semana|semanas|mes|meses|ano|anos)\b",
         re.IGNORECASE,
     ),
+    re.compile(
+        r"(?:publicad[oa]|postad[oa])\s*(?:em\s*)?\d{1,2}/\d{1,2}/\d{2,4}",
+        re.IGNORECASE,
+    ),
+    re.compile(
+        r"(?:publicad[oa]|postad[oa])\s*(?:on|el)\s+\d{1,2}/\d{1,2}/\d{2,4}",
+        re.IGNORECASE,
+    ),
+    re.compile(r"\b\d{1,2}/\d{1,2}/\d{4}\b"),
 ]
+
+DATE_IN_AGE_RE = re.compile(r"(\d{1,2})/(\d{1,2})/(\d{2,4})")
 
 AGE_UNIT_DAYS = [
     (("ano", "anos", "year", "years"), 365),
@@ -358,6 +400,10 @@ def parse_job_age_to_days(age_text: str) -> int | None:
         return None
 
     normalized_age = normalize_text(age_text)
+    date_match = DATE_IN_AGE_RE.search(normalized_age)
+    if date_match:
+        return days_since_date(date_match.group(0))
+
     count_match = re.search(r"(\d+)", normalized_age)
     if not count_match:
         return None
@@ -367,6 +413,18 @@ def parse_job_age_to_days(age_text: str) -> int | None:
         if any(unit in normalized_age for unit in unit_markers):
             return count * days_per_unit
     return None
+
+
+def days_since_date(date_text: str) -> int:
+    day, month, year = map(int, DATE_IN_AGE_RE.search(date_text).groups())
+    if year < 100:
+        year += 2000
+    try:
+        posted = datetime.date(year, month, day)
+    except ValueError:
+        return 0
+    days = (datetime.date.today() - posted).days
+    return max(days, 0)
 
 
 def is_allowed_posted_age(age_text: str) -> bool:
@@ -432,6 +490,16 @@ def is_junior_or_intern(title: str, supporting_text: str) -> bool:
     if has_seniority_block(focused_text):
         return False
     return contains_any_marker(focused_text, JUNIOR_MARKERS)
+
+
+def is_desired_seniority(title: str, supporting_text: str) -> bool:
+    focused_text = f"{title} {supporting_text}"
+    if has_seniority_block(focused_text):
+        return False
+    return contains_any_marker(focused_text, JUNIOR_MARKERS) or contains_any_marker(
+        focused_text,
+        PLENO_MARKERS,
+    )
 
 
 def is_target_role(title: str, supporting_text: str = "") -> bool:

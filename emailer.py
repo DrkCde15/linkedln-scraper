@@ -166,7 +166,7 @@ def build_email_body(jobs: list[Job], cards: str) -> str:
 def build_email_footer() -> str:
     return """
     <div style="text-align:center;padding:16px;color:#a0aec0;font-size:11px;">
-      Enviado automaticamente pelo LinkedIn Job Scraper 🤖
+      Enviado automaticamente pelo Job Scraper 🤖
     </div>"""
 
 
@@ -176,6 +176,12 @@ def build_email_card(job: Job) -> str:
     location = escape(job.get("location", DEFAULT_LOCATION))
     snippet = escape(job.get("snippet", "")[:EMAIL_SNIPPET_MAX_CHARS])
     url = escape(job["url"], quote=True)
+    meta_parts = [
+        escape(str(job.get("workplace"))).strip(),
+        escape(str(job.get("posted_age"))).strip(),
+        escape(str(job.get("source"))).strip(),
+    ]
+    meta_line = " · ".join(part for part in meta_parts if part)
 
     return f"""
         <div style="background:#fff;border:1px solid #e2e8f0;border-radius:12px;
@@ -184,12 +190,13 @@ def build_email_card(job: Job) -> str:
           <p style="margin:0 0 2px;font-size:14px;color:#4a5568;">
             🏢 {company} &nbsp;|&nbsp; 📍 {location}
           </p>
+          {f'<p style="margin:0 0 8px;font-size:12px;color:#a0aec0;">{meta_line}</p>' if meta_line else ''}
           <p style="margin:8px 0 12px;font-size:13px;color:#718096;">{snippet}</p>
           <a href="{url}" target="_blank"
              style="display:inline-block;background:#0a66c2;color:#fff;
                     text-decoration:none;padding:9px 20px;border-radius:8px;
                     font-size:13px;font-weight:600;">
-            Ver vaga no LinkedIn →
+            Ver vaga →
           </a>
         </div>"""
 

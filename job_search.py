@@ -1,20 +1,23 @@
 from __future__ import annotations
 
 import logging
+import time
 from collections.abc import Iterable, Mapping
 from typing import Any
 
 from ddgs import DDGS
 
 import config
-from filters import has_known_blocked_age, is_closed_text, is_junior_or_intern, is_target_role
-from linkedin import is_linkedin_job_url, normalize_linkedin_url
+from filters import has_known_blocked_age, is_closed_text, is_desired_seniority, is_target_role
 from models import Job
+from sites import is_supported_job_url, job_site_name, normalize_job_url
 
 
 log = logging.getLogger(__name__)
 
-DEFAULT_SEARCH_TITLE = "Vaga LinkedIn"
+DEFAULT_SEARCH_TITLE = "Vaga"
+
+QUERY_DELAY_SECONDS = 0.5
 
 
 def ddg_search() -> list[Job]:
@@ -24,6 +27,7 @@ def ddg_search() -> list[Job]:
     with DDGS() as duckduckgo:
         for query in config.SEARCH_QUERIES:
             results.extend(search_query_jobs(duckduckgo, query, seen_urls))
+            time.sleep(QUERY_DELAY_SECONDS)
 
     log.info("🔎  %d vagas únicas encontradas via DDG", len(results))
     return results
@@ -68,13 +72,13 @@ def parse_search_hit(hit: Mapping[str, Any]) -> Job:
 
 def is_relevant_search_job(job: Job) -> bool:
     result_text = f"{job['title']} {job['snippet']}"
-    if not job["url"] or not is_linkedin_job_url(job["url"]):
+    if not job["url"] or not is_supported_job_url(job["url"]):
         return False
     if is_closed_text(result_text):
         return False
     if has_known_blocked_age(result_text):
         return False
-    if not is_junior_or_intern(job["title"], job["snippet"]):
+    if not is_desired_seniority(job["title"], job["snippet"]):
         return False
     return not config.REQUIRE_TARGET_ROLE or is_target_role(job["title"], job["snippet"])
 
@@ -82,5 +86,6 @@ def is_relevant_search_job(job: Job) -> bool:
 def canonicalize_search_job(job: Job) -> Job:
     return {
         **job,
-        "url": normalize_linkedin_url(job["url"]),
+        "url": normalize_job_url(job["url"]),
+        "source": job_site_name(job["url"]),
     }
